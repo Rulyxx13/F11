@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mercedes-AMG F1 #44 3D Orthographic Viewer</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
+            background-color: #0d0f12;
+            color: #ffffff;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        header {
+            background: rgba(20, 24, 30, 0.95);
+            padding: 15px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #00a396;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        .title-container h1 {
+            font-size: 1.4rem;
+            letter-spacing: 1px;
+            color: #f0f0f0;
+        }
+        .title-container span {
+            color: #00a396;
+            font-weight: bold;
+        }
+        .subtitle {
+            font-size: 0.85rem;
+            color: #8a99a8;
+            margin-top: 2px;
+        }
+        .controls-bar {
+            display: flex;
+            gap: 10px;
+        }
+        .btn-view {
+            background: #1a212b;
+            color: #d1d5db;
+            border: 1px solid #334155;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
+        }
+        .btn-view:hover {
+            background: #00a396;
+            color: #ffffff;
+            border-color: #00a396;
+            box-shadow: 0 0 10px rgba(0, 163, 150, 0.4);
+        }
+        .btn-view.active {
+            background: #00a396;
+            color: #ffffff;
+            border-color: #00a396;
+        }
+        #canvas-container {
+            flex-grow: 1;
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        #info-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(15, 20, 28, 0.85);
+            padding: 12px 18px;
+            border-radius: 8px;
+            border-left: 4px solid #e6d000;
+            font-size: 0.85rem;
+            pointer-events: none;
+            backdrop-filter: blur(5px);
+        }
+        #info-overlay h3 {
+            color: #e6d000;
+            margin-bottom: 4px;
+        }
+    </style>
+    <!-- Three.js and OrbitControls via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <header>
+        <div class="title-container">
+            <h1>MERCEDES-AMG <span>F1 W13</span> #44</h1>
+            <div class="subtitle">Lewis Hamilton - Interactive 3D & Orthographic Views</div>
+        </div>
+        <div class="controls-bar">
+            <button class="btn-view active" onclick="setView('top')">Pandangan Atas</button>
+            <button class="btn-view" onclick="setView('front')">Pandangan Depan</button>
+            <button class="btn-view" onclick="setView('right')">Sisi Kanan</button>
+            <button class="btn-view" onclick="setView('left')">Sisi Kiri</button>
+            <button class="btn-view" onclick="setView('3d')">Pandangan 3D</button>
+        </div>
+    </header>
+
+    <div id="canvas-container">
+        <div id="info-overlay">
+            <h3 id="view-title">Pandangan Atas (Top View)</h3>
+            <p id="view-desc">Melihat bentuk aerodinamik sasis, sayap, sidepods, dan nombor #44 dari atas.</p>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer, controls;
+        let carGroup;
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0d0f12);
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            sunLight.position.set(10, 20, 10);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            scene.add(sunLight);
+
+            const fillLight = new THREE.DirectionalLight(0x00a396, 0.4);
+            fillLight.position.set(-10, -10, -10);
+            scene.add(fillLight);
+
+            // Grid Floor
+            const grid = new THREE.GridHelper(20, 20, 0x00a396, 0x1e293b);
+            grid.position.y = 0;
+            scene.add(grid);
+
+            // Build F1 Car
+            buildF1Car();
+
+            // Initial Camera Position (Top View)
+            setView('top');
+
+            // Responsive Resize
+            window.addEventListener('resize', onWindowResize);
+
+            // Animation Loop
+            animate();
+        }
+
+        function buildF1Car() {
+            carGroup = new THREE.Group();
+
+            // Materials
+            const matSilver = new THREE.MeshStandardMaterial({ color: 0xc8d0d8, metalness: 0.85, roughness: 0.2 });
+            const matBlack = new THREE.MeshStandardMaterial({ color: 0x111113, metalness: 0.3, roughness: 0.5 });
+            const matTeal = new THREE.MeshStandardMaterial({ color: 0x00a396, metalness: 0.5, roughness: 0.3 });
+            const matRed = new THREE.MeshStandardMaterial({ color: 0xd1122a, metalness: 0.6, roughness: 0.3 });
+            const matYellow = new THREE.MeshStandardMaterial({ color: 0xe6d000, metalness: 0.2, roughness: 0.3 });
+            const matRubber = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.1, roughness: 0.8 });
+
+            // 1. Chassis Body (Silver)
+            const chassisGeo = new THREE.BoxGeometry(0.8, 0.45, 3.8);
+            const chassis = new THREE.Mesh(chassisGeo, matSilver);
+            chassis.position.set(0, 0.45, 0);
+            chassis.castShadow = true;
+            carGroup.add(chassis);
+
+            // 2. Nose Cone (Silver)
+            const noseGeo = new THREE.ConeGeometry(0.35, 1.8, 4);
+            const nose = new THREE.Mesh(noseGeo, matSilver);
+            nose.rotation.x = Math.PI / 2;
+            nose.position.set(0, 0.4, 2.7);
+            nose.scale.set(1, 1, 0.6);
+            nose.castShadow = true;
+            carGroup.add(nose);
+
+            // 3. Engine Cover & Airbox (Ineos Red)
+            const airboxGeo = new THREE.BoxGeometry(0.5, 0.5, 1.4);
+            const airbox = new THREE.Mesh(airboxGeo, matRed);
+            airbox.position.set(0, 0.85, -0.3);
+            airbox.castShadow = true;
+            carGroup.add(airbox);
+
+            // 4. T-Cam (Yellow #44)
+            const tcamGeo = new THREE.BoxGeometry(0.12, 0.1, 0.25);
+            const tcam = new THREE.Mesh(tcamGeo, matYellow);
+            tcam.position.set(0, 1.15, -0.3);
+            carGroup.add(tcam);
+
+            // 5. HALO Cockpit Guard (Black)
+            const haloGeo = new THREE.TorusGeometry(0.3, 0.04, 8, 20, Math.PI);
+            const halo = new THREE.Mesh(haloGeo, matBlack);
+            halo.rotation.x = -Math.PI / 3;
+            halo.position.set(0, 0.75, 0.4);
+            carGroup.add(halo);
+
+            // 6. Sidepods (Carbon Black)
+            [-0.6, 0.6].forEach(x => {
+                const sidepodGeo = new THREE.BoxGeometry(0.45, 0.4, 1.8);
+                const sidepod = new THREE.Mesh(sidepodGeo, matBlack);
+                sidepod.position.set(x, 0.4, -0.3);
+                sidepod.castShadow = true;
+                carGroup.add(sidepod);
+            });
+
+            // 7. Floor (Carbon Black)
+            const floorGeo = new THREE.BoxGeometry(1.8, 0.06, 4.2);
+            const floor = new THREE.Mesh(floorGeo, matBlack);
+            floor.position.set(0, 0.18, 0);
+            floor.castShadow = true;
+            carGroup.add(floor);
+
+            // 8. Front Wing (Petronas Teal & Silver Endplates)
+            const fwGeo = new THREE.BoxGeometry(2.0, 0.05, 0.5);
+            const frontWing = new THREE.Mesh(fwGeo, matTeal);
+            frontWing.position.set(0, 0.25, 3.4);
+            frontWing.castShadow = true;
+            carGroup.add(frontWing);
+
+            [-1.0, 1.0].forEach(x => {
+                const epGeo = new THREE.BoxGeometry(0.04, 0.25, 0.55);
+                const endplate = new THREE.Mesh(epGeo, matSilver);
+                endplate.position.set(x, 0.32, 3.4);
+                carGroup.add(endplate);
+            });
+
+            // 9. Rear Wing (Teal & Black Endplates)
+            const rwGeo = new THREE.BoxGeometry(1.4, 0.06, 0.45);
+            const rearWing = new THREE.Mesh(rwGeo, matTeal);
+            rearWing.position.set(0, 1.0, -2.1);
+            rearWing.castShadow = true;
+            carGroup.add(rearWing);
+
+            [-0.7, 0.7].forEach(x => {
+                const rwEpGeo = new THREE.BoxGeometry(0.04, 0.5, 0.5);
+                const rwEndplate = new THREE.Mesh(rwEpGeo, matBlack);
+                rwEndplate.position.set(x, 0.85, -2.1);
+                carGroup.add(rwEndplate);
+            });
+
+            // 10. Wheels & Tires
+            const wheelPositions = [
+                { x: -0.95, z: 1.9 },   // Front Left
+                { x: 0.95, z: 1.9 },    // Front Right
+                { x: -0.95, z: -1.7 },  // Rear Left
+                { x: 0.95, z: -1.7 }    // Rear Right
+            ];
+
+            wheelPositions.forEach(pos => {
+                const tireGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.38, 24);
+                const tire = new THREE.Mesh(tireGeo, matRubber);
+                tire.rotation.z = Math.PI / 2;
+                tire.position.set(pos.x, 0.38, pos.z);
+                tire.castShadow = true;
+
+                // Rim
+                const rimGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.4, 16);
+                const rim = new THREE.Mesh(rimGeo, matBlack);
+                rim.rotation.z = Math.PI / 2;
+                rim.position.set(pos.x, 0.38, pos.z);
+
+                carGroup.add(tire);
+                carGroup.add(rim);
+            });
+
+            scene.add(carGroup);
+        }
+
+        function setView(viewType) {
+            // Update active button styling
+            document.querySelectorAll('.btn-view').forEach(btn => btn.classList.remove('active'));
+
+            const titleEl = document.getElementById('view-title');
+            const descEl = document.getElementById('view-desc');
+
+            switch(viewType) {
+                case 'top':
+                    camera.position.set(0, 10, 0.01);
+                    controls.target.set(0, 0, 0);
+                    titleEl.innerText = "Pandangan Atas (Top View)";
+                    descEl.innerText = "Melihat bentuk aerodinamik sasis, sayap, sidepods, dan susunan geometri kereta F1 dari atas.";
+                    event.target.classList.add('active');
+                    break;
+                case 'front':
+                    camera.position.set(0, 0.6, 9);
+                    controls.target.set(0, 0.4, 0);
+                    titleEl.innerText = "Pandangan Depan (Front View)";
+                    descEl.innerText = "Melihat profil depan kereta F1, HALO, sayap depan, dan kelebaran tayar.";
+                    event.target.classList.add('active');
+                    break;
+                case 'right':
+                    camera.position.set(9, 0.6, 0);
+                    controls.target.set(0, 0.4, 0);
+                    titleEl.innerText = "Pandangan Sisi Kanan (Right Side View)";
+                    descEl.innerText = "Melihat profil sisi kanan sasis, sidepod, airbox red Ineos, dan jarak roda.";
+                    event.target.classList.add('active');
+                    break;
+                case 'left':
+                    camera.position.set(-9, 0.6, 0);
+                    controls.target.set(0, 0.4, 0);
+                    titleEl.innerText = "Pandangan Sisi Kiri (Left Side View)";
+                    descEl.innerText = "Melihat profil sisi kiri kereta secara simetri.";
+                    event.target.classList.add('active');
+                    break;
+                case '3d':
+                    camera.position.set(6, 4, 7);
+                    controls.target.set(0, 0.4, 0);
+                    titleEl.innerText = "Pandangan 3D Bebas (3D Orbit)";
+                    descEl.innerText = "Gunakan tetikus (mouse) untuk memutar dan mengezum model 3D kereta F1 dari pelbagai sudut.";
+                    event.target.classList.add('active');
+                    break;
+            }
+            controls.update();
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('canvas-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
